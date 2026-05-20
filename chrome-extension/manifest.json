@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Gemini Style Tuner",
+  "version": "0.1.0",
+  "description": "调整 Gemini 回答正文、代码块、标题、列表样式，并清理消息区遮罩。",
+  "permissions": [
+    "storage"
+  ],
+  "action": {
+    "default_title": "Gemini Style Tuner"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://gemini.google.com/*"
+      ],
+      "js": [
+        "config.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

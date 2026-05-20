@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Gemini Style Tuner 设置</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <div class="layout">
+      <aside class="sidebar" aria-label="设置分类">
+        <div class="brand">
+          <span class="brand-mark"></span>
+          <span>Gemini Style Tuner</span>
+        </div>
+        <nav id="settingsNav" class="nav"></nav>
+      </aside>
+
+      <main class="content">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">扩展设置</p>
+            <h1>样式参数</h1>
+            <p class="summary">保存后，已打开的 Gemini 页面会自动应用新样式。</p>
+          </div>
+          <div class="actions">
+            <button id="reloadButton" type="button" class="text-button">重新载入</button>
+            <button id="resetButton" type="button" class="text-button">恢复默认</button>
+            <button id="saveButton" type="button" class="primary">保存设置</button>
+          </div>
+        </header>
+
+        <section id="status" class="status" aria-live="polite"></section>
+        <form id="settingsForm" class="settings"></form>
+      </main>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>
