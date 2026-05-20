@@ -53,6 +53,12 @@
     "th strong",
   ];
 
+  const MATH_TEXT_SELECTORS = [
+    ".math-block",
+    ".math-block .katex",
+    ".math-block .katex-display",
+  ];
+
   const CODE_SELECTORS = [
     "pre",
     "pre code",
@@ -68,11 +74,23 @@
   ];
 
   const INLINE_CODE_SELECTORS = [
+    "h1 code:not([data-test-id='code-content'])",
+    "h2 code:not([data-test-id='code-content'])",
+    "h3 code:not([data-test-id='code-content'])",
+    "h4 code:not([data-test-id='code-content'])",
+    "h5 code:not([data-test-id='code-content'])",
+    "h6 code:not([data-test-id='code-content'])",
     "p code:not([data-test-id='code-content'])",
     "li code:not([data-test-id='code-content'])",
     "blockquote code:not([data-test-id='code-content'])",
     "td code:not([data-test-id='code-content'])",
     "th code:not([data-test-id='code-content'])",
+  ];
+
+  const SOURCE_CHIP_SELECTORS = [
+    "button.multiple-button",
+    "button[aria-label*='source details']",
+    ".source-label-container",
   ];
 
   const CODE_BLOCK_SELECTORS = [
@@ -199,6 +217,12 @@
       .join(",\n");
   }
 
+  function buildLightModeStateSelectors(selectors, states) {
+    return selectors.flatMap((selector) => {
+      return states.map((state) => `:root[${THEME_ATTR}="light"] ${selector}${state}`);
+    }).join(",\n");
+  }
+
   function buildLightScopedSelectors(baseSelectors, targets) {
     const excludeTail = USER_CONTENT_EXCLUDES.map((selector) => `:not(${selector})`).join("");
     return baseSelectors.flatMap((base) => {
@@ -245,8 +269,11 @@
   function buildStyleText() {
     const bodySelector = buildScopedSelectors(ANSWER_ROOTS, BODY_TEXT_SELECTORS);
     const boldTextSelector = buildScopedSelectors(ANSWER_ROOTS, BOLD_TEXT_SELECTORS);
+    const mathTextSelector = buildScopedSelectors(ANSWER_ROOTS, MATH_TEXT_SELECTORS);
+    const blockquoteSelector = buildScopedSelectors(ANSWER_ROOTS, ["blockquote"]);
     const codeSelector = buildScopedSelectors(ANSWER_ROOTS, CODE_SELECTORS);
     const inlineCodeSelector = buildLightScopedSelectors(ANSWER_ROOTS, INLINE_CODE_SELECTORS);
+    const sourceChipSelector = buildLightScopedSelectors(ANSWER_ROOTS, SOURCE_CHIP_SELECTORS);
     const codeBlockSelector = buildScopedSelectors(ANSWER_ROOTS, CODE_BLOCK_SELECTORS);
     const codeBlockOuterSelector = buildScopedSelectors(ANSWER_ROOTS, CODE_BLOCK_OUTER_SELECTORS);
     const codeBlockInnerSelector = buildScopedSelectors(ANSWER_ROOTS, CODE_BLOCK_INNER_SELECTORS);
@@ -261,6 +288,16 @@
     const sidenavSurfaceSelector = buildLightModeSelectors(SIDENAV_SURFACE_SELECTORS);
     const sidenavFooterSelector = buildLightModeSelectors(SIDENAV_FOOTER_SELECTORS);
     const sidenavSelectedConversationSelector = buildLightModeSelectors(SIDENAV_SELECTED_CONVERSATION_SELECTORS);
+    const sidenavSelectedConversationStateSelector = buildLightModeStateSelectors(
+      SIDENAV_SELECTED_CONVERSATION_SELECTORS,
+      [":hover", ":focus", ":focus-visible", ":active"],
+    );
+    const sidenavSelectedConversationRippleSelector = buildLightModeSelectors([
+      ".conversation.selected .mat-mdc-button-persistent-ripple",
+      ".conversation.selected .mat-ripple-element",
+      ".gem-nav-list-item.is-active .mat-mdc-button-persistent-ripple",
+      ".gem-nav-list-item.is-active .mat-ripple-element",
+    ]);
     const unorderedListSelector = buildScopedSelectors(ANSWER_ROOTS, ["ul", "ul ul"]);
     const orderedListSelector = buildScopedSelectors(ANSWER_ROOTS, ["ol", "ol ol", "ul ol"]);
     const listItemSelector = buildScopedSelectors(ANSWER_ROOTS, ["li"]);
@@ -303,6 +340,19 @@
       "top-bar-actions > *",
       ".top-bar-actions > *",
     ].join(",\n");
+    const bottomGradientSelector = [
+      ".bottom-gradient",
+      "infinite-scroller .bottom-gradient",
+      "chat-window-content .bottom-gradient",
+    ].join(",\n");
+    const sidenavTopGradientSelector = [
+      "side-navigation-content infinite-scroller .top-gradient-container",
+      "side-navigation-content infinite-scroller .top-gradient",
+      ".sidenav-with-history-container infinite-scroller .top-gradient-container",
+      ".sidenav-with-history-container infinite-scroller .top-gradient",
+      ".overflow-container infinite-scroller .top-gradient-container",
+      ".overflow-container infinite-scroller .top-gradient",
+    ].join(",\n");
     const disclaimerSelector = [
       "[data-test-id='disclaimer']",
       "p[data-test-id='disclaimer']",
@@ -327,6 +377,21 @@
         mask-image: none !important;
         -webkit-mask-image: none !important;
       }
+
+      ${bottomGradientSelector} {
+        display: none !important;
+        background: none !important;
+        background-image: none !important;
+        pointer-events: none !important;
+      }
+
+      ${sidenavTopGradientSelector} {
+        display: none !important;
+        opacity: 0 !important;
+        background: none !important;
+        background-image: none !important;
+        pointer-events: none !important;
+      }
     ` : "";
 
     return `
@@ -334,6 +399,7 @@
         --gemini-body-font-size: ${config.bodyFontSize};
         --gemini-body-line-height: ${config.bodyLineHeight};
         --gemini-body-bold-font-weight: ${config.bodyBoldWeight};
+        --gemini-math-font-size: ${config.mathFontSize};
         --gemini-code-font-size: ${config.codeFontSize};
         --gemini-code-line-height: ${config.codeLineHeight};
         --gemini-inline-code-background: ${config.inlineCodeBackground};
@@ -367,6 +433,17 @@
       ${boldTextSelector} {
         font-weight: var(--gemini-body-bold-font-weight) !important;
         font-synthesis-weight: auto !important;
+      }
+
+      ${mathTextSelector} {
+        font-size: var(--gemini-math-font-size) !important;
+        line-height: var(--gemini-body-line-height) !important;
+      }
+
+      ${blockquoteSelector} {
+        padding-inline-start: 18px !important;
+        margin-inline-start: 20px !important;
+        border-inline-start-width: 2px !important;
       }
 
       ${headingSelector} {
@@ -415,6 +492,23 @@
 
       ${sidenavSelectedConversationSelector} {
         background-color: var(--gemini-sidenav-selected-background) !important;
+        background-image: none !important;
+        --mat-list-list-item-hover-state-layer-opacity: 0 !important;
+        --mat-list-list-item-focus-state-layer-opacity: 0 !important;
+        --mat-list-list-item-pressed-state-layer-opacity: 0 !important;
+      }
+
+      ${sidenavSelectedConversationStateSelector} {
+        background-color: var(--gemini-sidenav-selected-background) !important;
+        background-image: none !important;
+        --mat-list-list-item-hover-state-layer-opacity: 0 !important;
+        --mat-list-list-item-focus-state-layer-opacity: 0 !important;
+        --mat-list-list-item-pressed-state-layer-opacity: 0 !important;
+      }
+
+      ${sidenavSelectedConversationRippleSelector} {
+        background: transparent !important;
+        background-color: transparent !important;
       }
 
       ${unorderedListSelector} {
@@ -522,6 +616,11 @@
 
       ${inlineCodeSelector} {
         background-color: var(--gemini-inline-code-background) !important;
+      }
+
+      ${sourceChipSelector} {
+        background-color: var(--gemini-inline-code-background) !important;
+        border-color: transparent !important;
       }
 
       ${codeBlockSelector} {
