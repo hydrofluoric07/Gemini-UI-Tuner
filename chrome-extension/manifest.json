@@ -6,6 +6,9 @@
   "permissions": [
     "storage"
   ],
+  "host_permissions": [
+    "https://api.github.com/*"
+  ],
   "action": {
     "default_title": "Gemini Style Tuner"
   },
@@ -22,6 +25,23 @@
         "content.js"
       ],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "vendor/shiki/core/index.mjs",
+        "vendor/shiki/engine-oniguruma/*.mjs",
+        "vendor/shiki/engine-javascript/*.mjs",
+        "vendor/shiki/langs/*.mjs",
+        "vendor/shiki/themes/*.mjs",
+        "vendor/shiki/types/index.mjs",
+        "vendor/shiki/primitive/index.mjs",
+        "vendor/shiki/vscode-textmate/index.js"
+      ],
+      "matches": [
+        "https://gemini.google.com/*"
+      ]
     }
   ]
 }

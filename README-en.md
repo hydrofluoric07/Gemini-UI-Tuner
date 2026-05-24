@@ -2,35 +2,35 @@
 
 [简体中文](README.md) | [English](README-en.md)
 
-A browser extension for beautifying and fine-tuning the Gemini web UI. It adjusts answer text, headings, lists, code blocks, side navigation, user message bubbles, and top overlay effects.
+A Gemini UI customization extension that adjusts model answer text, headings, lists, code blocks, side navigation, user message bubbles, and top overlay effects.
 
 ## Screenshots
+Default style:
 <p align="center">
   <img src="images/image1.png" alt="Before">
 </p>
- <p align="center">Before</p>
+
+After enabling the extension:
 <p align="center">
   <img src="images/image2.png" alt="After">
-  <img src="images/image3.png" alt="After">
   </p>
- <p align="center">After</p>
+
+
+Click the extension icon to open settings:
 <p align="center">
-  <img src="images/image4.png" alt="设置">
+  <img src="images/image4.png" alt="Settings">
 </p>
-<p align="center">Custom settings</p>
+
 
 ## Features
 
-- Adjust answer text font size, line height, font family, and bold weight.
-- Customize heading size, weight, line height, and top margin.
-- Adjust inline code background, code font size, code block radius, and padding.
-- Improve unordered list bullets, ordered list markers, and list spacing.
-- Customize side navigation background and user message bubble background.
-- Control whether Gemini's top translucent overlay is removed.
+- Adjust answer text and headings, and optimize unordered lists.
+- Customize code block styles.
+- Customize sidebar background and user message bubble background styles.
 
 ## Usage
 
-1. Download this repository and unzip it.
+1. Download the latest archive from [Releases](https://github.com/hydrofluoric07/Gemini-UI-Tuner/releases/latest) and unzip it.
 2. Open the Chrome extensions page: `chrome://extensions/`.
 3. Enable "Developer mode" in the top-right corner.
 4. Click "Load unpacked" and select this extension.

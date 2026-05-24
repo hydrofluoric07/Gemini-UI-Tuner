@@ -3,6 +3,105 @@
 
   const STORAGE_KEY = "geminiStyleTunerConfig";
 
+  const SHIKI_THEME_IDS = [
+    "andromeeda",
+    "aurora-x",
+    "ayu-dark",
+    "ayu-light",
+    "ayu-mirage",
+    "catppuccin-frappe",
+    "catppuccin-latte",
+    "catppuccin-macchiato",
+    "catppuccin-mocha",
+    "dark-plus",
+    "dracula-soft",
+    "dracula",
+    "everforest-dark",
+    "everforest-light",
+    "github-dark-default",
+    "github-dark-dimmed",
+    "github-dark-high-contrast",
+    "github-dark",
+    "github-light-default",
+    "github-light-high-contrast",
+    "github-light",
+    "gruvbox-dark-hard",
+    "gruvbox-dark-medium",
+    "gruvbox-dark-soft",
+    "gruvbox-light-hard",
+    "gruvbox-light-medium",
+    "gruvbox-light-soft",
+    "horizon-bright",
+    "horizon",
+    "houston",
+    "kanagawa-dragon",
+    "kanagawa-lotus",
+    "kanagawa-wave",
+    "laserwave",
+    "light-plus",
+    "material-theme-darker",
+    "material-theme-lighter",
+    "material-theme-ocean",
+    "material-theme-palenight",
+    "material-theme",
+    "min-dark",
+    "min-light",
+    "monokai",
+    "night-owl-light",
+    "night-owl",
+    "nord",
+    "one-dark-pro",
+    "one-light",
+    "plastic",
+    "poimandres",
+    "red",
+    "rose-pine-dawn",
+    "rose-pine-moon",
+    "rose-pine",
+    "slack-dark",
+    "slack-ochin",
+    "snazzy-light",
+    "solarized-dark",
+    "solarized-light",
+    "synthwave-84",
+    "tokyo-night",
+    "vesper",
+    "vitesse-black",
+    "vitesse-dark",
+    "vitesse-light",
+  ];
+
+  function formatThemeLabel(themeId) {
+    if (themeId === "one-dark-pro") {
+      return "One Dark Pro";
+    }
+
+    return themeId
+      .split("-")
+      .map((segment) => {
+        if (/^\d+$/.test(segment)) {
+          return segment;
+        }
+
+        return segment.charAt(0).toUpperCase() + segment.slice(1);
+      })
+      .join(" ");
+  }
+
+  const CODE_THEME_PRESETS = [
+    { key: "default", label: "默认主题", shikiTheme: null },
+    ...SHIKI_THEME_IDS.map((themeId) => ({
+      key: themeId,
+      label: formatThemeLabel(themeId),
+      shikiTheme: themeId,
+    })),
+  ];
+
+  const CODE_THEME_OPTIONS = CODE_THEME_PRESETS.map((theme) => ({
+    value: theme.key,
+    label: theme.label,
+  }));
+
   const DEFAULT_CONFIG = {
     bodyFontSize: "16px",
     bodyLineHeight: "1.75",
@@ -15,6 +114,12 @@
     codeBlockOuterPadding: "8px",
     codeBlockInnerPadding: "16px 0 16px 16px",
     codeBlockMarginTop: "0px",
+    lightCodeThemePreset: "default",
+    darkCodeThemePreset: "default",
+    lightCodeBlockBackgroundOverrideEnabled: "false",
+    lightCodeBlockBackgroundOverride: "#f0f4f9",
+    darkCodeBlockBackgroundOverrideEnabled: "false",
+    darkCodeBlockBackgroundOverride: "#1e1f20",
     headingH1FontSize: "22px",
     headingH2FontSize: "20px",
     headingH3ToH6FontSize: "16px",
@@ -68,6 +173,42 @@
         { key: "codeBlockOuterPadding", label: "外层 padding", type: "text", placeholder: "8px" },
         { key: "codeBlockInnerPadding", label: "内层 padding", type: "text", placeholder: "16px 0 16px 16px" },
         { key: "codeBlockMarginTop", label: "顶部 margin", type: "text", placeholder: "0px" },
+        {
+          key: "lightCodeThemePreset",
+          label: "浅色代码块主题",
+          type: "select",
+          options: CODE_THEME_OPTIONS,
+        },
+        {
+          key: "lightCodeBlockBackgroundOverrideEnabled",
+          label: "浅色代码块背景强制覆盖",
+          type: "switch",
+        },
+        {
+          key: "lightCodeBlockBackgroundOverride",
+          label: "浅色代码块背景色",
+          type: "color",
+          placeholder: "#f0f4f9",
+          visibility: { field: "lightCodeBlockBackgroundOverrideEnabled", equals: "true" },
+        },
+        {
+          key: "darkCodeThemePreset",
+          label: "深色代码块主题",
+          type: "select",
+          options: CODE_THEME_OPTIONS,
+        },
+        {
+          key: "darkCodeBlockBackgroundOverrideEnabled",
+          label: "深色代码块背景强制覆盖",
+          type: "switch",
+        },
+        {
+          key: "darkCodeBlockBackgroundOverride",
+          label: "深色代码块背景色",
+          type: "color",
+          placeholder: "#1e1f20",
+          visibility: { field: "darkCodeBlockBackgroundOverrideEnabled", equals: "true" },
+        },
       ],
     },
     {
@@ -109,21 +250,42 @@
     }
 
     const legacyLightBackground = savedConfig.lightSurfaceBackground;
+    const legacyThemePreset = typeof savedConfig.codeThemePreset === "string" && savedConfig.codeThemePreset.trim()
+      ? savedConfig.codeThemePreset
+      : undefined;
+    const legacyThemeMode = savedConfig.codeThemeMode;
+    const normalizeLegacyThemePreset = (value) => {
+      if (value === "one-dark") {
+        return "one-dark-pro";
+      }
+
+      return value;
+    };
 
     return Object.fromEntries(
       Object.entries(DEFAULT_CONFIG).map(([key, defaultValue]) => {
         const savedValue = savedConfig[key] ?? (
           (key === "sidenavBackground" || key === "userQueryBubbleBackground")
             ? legacyLightBackground
+            : (key === "lightCodeThemePreset" || key === "darkCodeThemePreset")
+              ? (
+                legacyThemeMode === "preset"
+                  ? normalizeLegacyThemePreset(legacyThemePreset)
+                  : legacyThemeMode
+                    ? "default"
+                    : undefined
+              )
             : undefined
         );
-        return [key, typeof savedValue === "string" && savedValue.trim() ? savedValue : defaultValue];
+        const normalizedSavedValue = typeof savedValue === "string" ? normalizeLegacyThemePreset(savedValue.trim()) : savedValue;
+        return [key, typeof normalizedSavedValue === "string" && normalizedSavedValue ? normalizedSavedValue : defaultValue];
       }),
     );
   }
 
   globalThis.GeminiStyleTunerConfig = {
     STORAGE_KEY,
+    CODE_THEME_PRESETS,
     DEFAULT_CONFIG,
     CONFIG_FIELDS,
     mergeConfig,

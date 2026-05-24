@@ -2,14 +2,92 @@
   "use strict";
 
   const STYLE_ID = "gemini-style-tuner-style";
+  const CODE_THEME_STYLE_ID = "gemini-style-tuner-code-theme";
   const THEME_ATTR = "data-gemini-style-tuner-theme";
+  const SHIKI_RENDER_ATTR = "data-gemini-style-tuner-shiki";
+  const SHIKI_THEME_ATTR = "data-gemini-style-tuner-shiki-theme";
   const OBSERVER_DEBOUNCE_MS = 120;
   const {
     STORAGE_KEY,
+    CODE_THEME_PRESETS,
     DEFAULT_CONFIG,
     mergeConfig,
   } = globalThis.GeminiStyleTunerConfig;
   let config = { ...DEFAULT_CONFIG };
+  const codeBlockSnapshots = new WeakMap();
+  const codeBlockRenderState = new WeakMap();
+  const shikiModuleCache = new Map();
+  const shikiThemeCache = new Map();
+  const shikiLanguageCache = new Map();
+  let shikiHighlighterPromise = null;
+
+  const CODE_THEME_METADATA = Object.fromEntries(
+    (Array.isArray(CODE_THEME_PRESETS) ? CODE_THEME_PRESETS : []).map((preset) => [preset.key, preset]),
+  );
+
+  const SHIKI_THEME_LOADERS = Object.fromEntries(
+    (Array.isArray(CODE_THEME_PRESETS) ? CODE_THEME_PRESETS : [])
+      .filter((preset) => preset?.shikiTheme)
+      .map((preset) => [preset.shikiTheme, () => loadShikiModule(`./vendor/shiki/themes/${preset.shikiTheme}.mjs`)]),
+  );
+
+  const SHIKI_LANGUAGE_LOADERS = {
+    javascript: () => loadShikiModule("./vendor/shiki/langs/javascript.mjs"),
+    typescript: () => loadShikiModule("./vendor/shiki/langs/typescript.mjs"),
+    jsx: () => loadShikiModule("./vendor/shiki/langs/jsx.mjs"),
+    tsx: () => loadShikiModule("./vendor/shiki/langs/tsx.mjs"),
+    json: () => loadShikiModule("./vendor/shiki/langs/json.mjs"),
+    html: () => loadShikiModule("./vendor/shiki/langs/html.mjs"),
+    css: () => loadShikiModule("./vendor/shiki/langs/css.mjs"),
+    shellscript: () => loadShikiModule("./vendor/shiki/langs/shellscript.mjs"),
+    python: () => loadShikiModule("./vendor/shiki/langs/python.mjs"),
+    java: () => loadShikiModule("./vendor/shiki/langs/java.mjs"),
+    go: () => loadShikiModule("./vendor/shiki/langs/go.mjs"),
+    sql: () => loadShikiModule("./vendor/shiki/langs/sql.mjs"),
+    yaml: () => loadShikiModule("./vendor/shiki/langs/yaml.mjs"),
+    markdown: () => loadShikiModule("./vendor/shiki/langs/markdown.mjs"),
+    xml: () => loadShikiModule("./vendor/shiki/langs/xml.mjs"),
+  };
+
+  const LANGUAGE_ALIAS_MAP = {
+    js: "javascript",
+    javascript: "javascript",
+    node: "javascript",
+    mjs: "javascript",
+    cjs: "javascript",
+    ts: "typescript",
+    typescript: "typescript",
+    mts: "typescript",
+    cts: "typescript",
+    jsx: "jsx",
+    tsx: "tsx",
+    json: "json",
+    json5: "json",
+    jsonc: "json",
+    html: "html",
+    xml: "xml",
+    svg: "xml",
+    css: "css",
+    scss: "css",
+    less: "css",
+    bash: "shellscript",
+    sh: "shellscript",
+    shell: "shellscript",
+    shellscript: "shellscript",
+    zsh: "shellscript",
+    console: "shellscript",
+    terminal: "shellscript",
+    py: "python",
+    python: "python",
+    java: "java",
+    go: "go",
+    golang: "go",
+    sql: "sql",
+    yaml: "yaml",
+    yml: "yaml",
+    md: "markdown",
+    markdown: "markdown",
+  };
 
   const ANSWER_ROOTS = [
     "chat-app .chat-history",
@@ -59,6 +137,13 @@
     ".math-block .katex-display",
   ];
 
+  const CODE_CONTENT_SELECTORS = [
+    "code[data-test-id='code-content']",
+    ".formatted-code-block-internal-container code",
+    "code.code-container.formatted",
+    "pre > code",
+  ];
+
   const CODE_SELECTORS = [
     "pre",
     "pre code",
@@ -68,9 +153,13 @@
     "code-block pre",
     "code-block code[data-test-id='code-content']",
     "code-block code[data-test-id='code-content'] span",
+    "code-block code.code-container.formatted",
+    "code-block code.code-container.formatted span",
     ".formatted-code-block-internal-container pre",
     ".formatted-code-block-internal-container code[data-test-id='code-content']",
     ".formatted-code-block-internal-container code[data-test-id='code-content'] span",
+    ".formatted-code-block-internal-container code",
+    ".formatted-code-block-internal-container code span",
   ];
 
   const INLINE_CODE_SELECTORS = [
@@ -108,6 +197,16 @@
   const CODE_BLOCK_INNER_SELECTORS = [
     "code-block .formatted-code-block-internal-container",
     ".formatted-code-block-internal-container",
+  ];
+
+  const CODE_BLOCK_VISUAL_SURFACE_SELECTORS = [
+    "code-block .code-block",
+    "code-block .formatted-code-block-internal-container",
+    "code-block .formatted-code-block-internal-container .animated-opacity",
+    "code-block .formatted-code-block-internal-container pre",
+    ".formatted-code-block-internal-container",
+    ".formatted-code-block-internal-container .animated-opacity",
+    ".formatted-code-block-internal-container pre",
   ];
 
   const USER_QUERY_BUBBLE_SELECTORS = [
@@ -266,6 +365,548 @@
     document.documentElement.setAttribute(THEME_ATTR, detectGeminiTheme());
   }
 
+  function getActiveCodeThemePreset() {
+    const themeMode = document.documentElement.getAttribute(THEME_ATTR);
+    return themeMode === "dark"
+      ? config.darkCodeThemePreset
+      : config.lightCodeThemePreset;
+  }
+
+  function getActiveCodeThemeDefinition() {
+    const presetKey = getActiveCodeThemePreset();
+    if (!presetKey || presetKey === "default") {
+      return null;
+    }
+
+    return CODE_THEME_METADATA[presetKey] || null;
+  }
+
+  function loadShikiModule(relativePath) {
+    const absoluteUrl = chrome.runtime.getURL(relativePath);
+    if (!shikiModuleCache.has(absoluteUrl)) {
+      shikiModuleCache.set(absoluteUrl, import(absoluteUrl));
+    }
+    return shikiModuleCache.get(absoluteUrl);
+  }
+
+  async function getShikiHighlighter() {
+    if (!shikiHighlighterPromise) {
+      shikiHighlighterPromise = Promise.all([
+        loadShikiModule("./vendor/shiki/core/index.mjs"),
+        loadShikiModule("./vendor/shiki/engine-oniguruma/index.mjs"),
+        loadShikiModule("./vendor/shiki/engine-oniguruma/wasm-inlined.mjs"),
+      ]).then(async ([coreModule, engineModule, wasmModule]) => {
+        return coreModule.createHighlighterCore({
+          themes: [],
+          langs: [],
+          engine: await engineModule.createOnigurumaEngine(wasmModule),
+        });
+      });
+    }
+
+    return shikiHighlighterPromise;
+  }
+
+  async function ensureShikiThemeLoaded(highlighter, themeId) {
+    if (!themeId) {
+      return null;
+    }
+
+    if (!shikiThemeCache.has(themeId)) {
+      const loader = SHIKI_THEME_LOADERS[themeId];
+      if (!loader) {
+        throw new Error(`Unsupported Shiki theme: ${themeId}`);
+      }
+
+      shikiThemeCache.set(themeId, loader().then((module) => module.default || module));
+    }
+
+    const theme = await shikiThemeCache.get(themeId);
+    await highlighter.loadTheme(theme);
+    return theme;
+  }
+
+  async function ensureShikiLanguageLoaded(highlighter, languageId) {
+    if (!languageId) {
+      return null;
+    }
+
+    if (!shikiLanguageCache.has(languageId)) {
+      const loader = SHIKI_LANGUAGE_LOADERS[languageId];
+      if (!loader) {
+        return null;
+      }
+
+      shikiLanguageCache.set(languageId, loader().then((module) => module.default || module));
+    }
+
+    const language = await shikiLanguageCache.get(languageId);
+    await highlighter.loadLanguage(language);
+    return language;
+  }
+
+  function getCodeBlockElements(root) {
+    if (!(root instanceof Element)) {
+      return null;
+    }
+
+    const codeContentSelector = CODE_CONTENT_SELECTORS.join(", ");
+    const codeElement = root.matches?.(codeContentSelector)
+      ? root
+      : root.querySelector?.(codeContentSelector);
+    const preElement = root.matches?.("pre")
+      ? root
+      : root.querySelector?.("pre") || codeElement?.closest?.("pre");
+    const innerElement = root.closest?.(".formatted-code-block-internal-container")
+      || root.querySelector?.(".formatted-code-block-internal-container")
+      || codeElement?.closest?.(".formatted-code-block-internal-container")
+      || preElement?.closest?.(".formatted-code-block-internal-container");
+    const outerElement = innerElement?.closest?.(".code-block") || root.closest?.(".code-block") || root.querySelector?.(".code-block");
+    const codeBlockElement = innerElement?.closest?.("code-block") || root.closest?.("code-block");
+
+    if (!(codeElement instanceof HTMLElement) || !(preElement instanceof HTMLElement) || !(innerElement instanceof HTMLElement)) {
+      return null;
+    }
+
+    return {
+      codeElement,
+      preElement,
+      innerElement,
+      outerElement: outerElement instanceof HTMLElement ? outerElement : null,
+      codeBlockElement: codeBlockElement instanceof HTMLElement ? codeBlockElement : null,
+    };
+  }
+
+  function getCodeBlockTargets() {
+    const matches = new Set();
+    document.querySelectorAll([
+      "code-block",
+      ".formatted-code-block-internal-container",
+      ...CODE_CONTENT_SELECTORS,
+    ].join(", ")).forEach((node) => {
+      if (!(node instanceof Element)) {
+        return;
+      }
+
+      const elements = getCodeBlockElements(node);
+      if (elements?.innerElement) {
+        matches.add(elements.innerElement);
+      }
+    });
+    return [...matches];
+  }
+
+  function ensureCodeBlockSnapshot(target) {
+    const elements = getCodeBlockElements(target);
+    if (!elements) {
+      return null;
+    }
+
+    if (!codeBlockSnapshots.has(elements.codeElement)) {
+      const hasShikiState = elements.innerElement.hasAttribute(SHIKI_THEME_ATTR)
+        || elements.codeElement.hasAttribute(SHIKI_RENDER_ATTR);
+      codeBlockSnapshots.set(elements.codeElement, {
+        innerHTML: elements.codeElement.innerHTML,
+        textContent: elements.codeElement.textContent || "",
+        preBackground: elements.preElement.style.backgroundColor || "",
+        preColor: hasShikiState ? "" : elements.preElement.style.color || "",
+        innerBackground: elements.innerElement.style.backgroundColor || "",
+        innerColor: hasShikiState ? "" : elements.innerElement.style.color || "",
+      });
+    }
+
+    return {
+      elements,
+      snapshot: codeBlockSnapshots.get(elements.codeElement),
+    };
+  }
+
+  function restoreOriginalCodeBlock(target) {
+    const payload = ensureCodeBlockSnapshot(target);
+    if (!payload) {
+      return;
+    }
+
+    const { elements, snapshot } = payload;
+    elements.codeElement.innerHTML = snapshot.innerHTML;
+    elements.codeElement.removeAttribute(SHIKI_RENDER_ATTR);
+    clearShikiThemeSurface(elements);
+    elements.preElement.style.backgroundColor = snapshot.preBackground;
+    elements.preElement.style.color = snapshot.preColor;
+    elements.innerElement.style.backgroundColor = snapshot.innerBackground;
+    elements.innerElement.style.color = snapshot.innerColor;
+    codeBlockRenderState.delete(elements.codeElement);
+  }
+
+  function normalizeLanguageId(value) {
+    const normalized = String(value || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^language-/, "")
+      .replace(/^lang-/, "")
+      .replace(/\s+/g, "-");
+
+    return LANGUAGE_ALIAS_MAP[normalized] || null;
+  }
+
+  function detectCodeLanguage(target) {
+    const payload = ensureCodeBlockSnapshot(target);
+    if (!payload) {
+      return null;
+    }
+
+    const { elements } = payload;
+    const candidates = [];
+    const attributeKeys = ["data-language", "language", "lang", "data-lang"];
+
+    [elements.codeElement, elements.preElement, elements.innerElement, elements.outerElement, elements.codeBlockElement]
+      .filter(Boolean)
+      .forEach((node) => {
+        attributeKeys.forEach((key) => {
+          const attrValue = node.getAttribute?.(key);
+          if (attrValue) {
+            candidates.push(attrValue);
+          }
+        });
+
+        String(node.className || "")
+          .split(/\s+/)
+          .forEach((className) => {
+            if (/^(language|lang)-/i.test(className)) {
+              candidates.push(className);
+            }
+          });
+      });
+
+    const nearbyLabel = elements.innerElement.parentElement?.textContent || "";
+    const labelMatch = nearbyLabel.match(/\b(javascript|typescript|python|java|go|sql|json|html|css|xml|yaml|yml|bash|shell|sh|jsx|tsx|markdown|md)\b/i);
+    if (labelMatch) {
+      candidates.push(labelMatch[1]);
+    }
+
+    for (const candidate of candidates) {
+      const languageId = normalizeLanguageId(candidate);
+      if (languageId) {
+        return languageId;
+      }
+    }
+
+    return null;
+  }
+
+  function escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function parseColor(value) {
+    const color = String(value || "").trim();
+    const hexMatch = color.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (hexMatch) {
+      const hex = hexMatch[1].length === 3
+        ? hexMatch[1].split("").map((char) => char + char).join("")
+        : hexMatch[1];
+
+      return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16),
+      };
+    }
+
+    const rgbMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i);
+    if (rgbMatch) {
+      return {
+        r: Math.max(0, Math.min(255, Number(rgbMatch[1]))),
+        g: Math.max(0, Math.min(255, Number(rgbMatch[2]))),
+        b: Math.max(0, Math.min(255, Number(rgbMatch[3]))),
+      };
+    }
+
+    return null;
+  }
+
+  function getRelativeLuminance(color) {
+    const toLinear = (channel) => {
+      const value = channel / 255;
+      return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    };
+
+    return (0.2126 * toLinear(color.r)) + (0.7152 * toLinear(color.g)) + (0.0722 * toLinear(color.b));
+  }
+
+  function buildThemeSurfaceColors(foreground, background) {
+    const backgroundColor = parseColor(background);
+    const isDarkBackground = backgroundColor ? getRelativeLuminance(backgroundColor) < 0.45 : true;
+    const overlayColor = isDarkBackground ? "255, 255, 255" : "0, 0, 0";
+
+    return {
+      foreground: foreground || (isDarkBackground ? "#f8f8f2" : "#24292f"),
+      background: background || (isDarkBackground ? "#1f1f1f" : "#ffffff"),
+      mutedForeground: foreground || (isDarkBackground ? "#f8f8f2" : "#24292f"),
+      hoverBackground: `rgba(${overlayColor}, ${isDarkBackground ? "0.14" : "0.08"})`,
+    };
+  }
+
+  function getThemeColor(theme, tokenResult, colorName) {
+    if (colorName === "foreground") {
+      return theme.colors?.["editor.foreground"]
+        || theme.colors?.foreground
+        || theme.fg
+        || tokenResult.fg
+        || "";
+    }
+
+    return theme.colors?.["editor.background"]
+      || theme.colors?.background
+      || theme.bg
+      || tokenResult.bg
+      || "";
+  }
+
+  function isHexColor(value) {
+    return /^#[0-9a-f]{6}$/i.test(String(value || "").trim());
+  }
+
+  function getActiveCodeBlockBackground(themeBackground) {
+    const themeMode = document.documentElement.getAttribute(THEME_ATTR);
+    const enabledKey = themeMode === "dark"
+      ? "darkCodeBlockBackgroundOverrideEnabled"
+      : "lightCodeBlockBackgroundOverrideEnabled";
+    const colorKey = themeMode === "dark"
+      ? "darkCodeBlockBackgroundOverride"
+      : "lightCodeBlockBackgroundOverride";
+    const overrideColor = String(config[colorKey] || "").trim();
+
+    if (config[enabledKey] === "true" && isHexColor(overrideColor)) {
+      return overrideColor;
+    }
+
+    return themeBackground;
+  }
+
+  function getShikiThemeSurfaceHosts(elements) {
+    return [
+      elements.innerElement,
+      elements.outerElement,
+      elements.codeBlockElement,
+    ].filter((node, index, nodes) => node instanceof HTMLElement && nodes.indexOf(node) === index);
+  }
+
+  function getShikiThemeBackgroundTargets(elements) {
+    return [
+      elements.outerElement,
+      elements.innerElement,
+      elements.innerElement.querySelector?.(".animated-opacity"),
+    ].filter((node, index, nodes) => node instanceof HTMLElement && nodes.indexOf(node) === index);
+  }
+
+  function getShikiThemeTransparentTargets(elements) {
+    return [
+      elements.preElement,
+      elements.codeElement,
+    ].filter((node, index, nodes) => node instanceof HTMLElement && nodes.indexOf(node) === index);
+  }
+
+  function getShikiToolbarTargets(elements) {
+    const toolbarControls = elements.innerElement.querySelectorAll?.(
+      ".buttons gem-icon-button, .buttons button, .buttons gem-icon, .buttons mat-icon, .buttons [data-test-id='gem-copy-button'], .buttons [data-test-id*='download' i], .buttons [aria-label*='Copy' i], .buttons [aria-label*='Download' i]",
+    ) || [];
+
+    return [
+      elements.innerElement.querySelector?.(".code-block-decoration > span:first-child"),
+      ...toolbarControls,
+    ].filter((node, index, nodes) => node instanceof HTMLElement && nodes.indexOf(node) === index);
+  }
+
+  function applyShikiToolbarColor(elements, colors) {
+    getShikiToolbarTargets(elements).forEach((target) => {
+      target.style.setProperty("color", colors.foreground, "important");
+      target.style.setProperty("--gem-sys-color--on-surface", colors.foreground, "important");
+      target.style.setProperty("--gem-sys-color--on-surface-variant", colors.foreground, "important");
+      target.style.setProperty("--lumi-sys-color--on-surface", colors.foreground, "important");
+      target.style.setProperty("--mat-button-text-label-text-color", colors.foreground, "important");
+      target.style.setProperty("--mat-button-text-state-layer-color", colors.foreground, "important");
+      target.style.setProperty("--mat-icon-button-icon-color", colors.foreground, "important");
+      target.style.setProperty("--mdc-icon-button-icon-color", colors.foreground, "important");
+    });
+  }
+
+  function clearShikiToolbarColor(elements) {
+    getShikiToolbarTargets(elements).forEach((target) => {
+      [
+        "color",
+        "--gem-sys-color--on-surface",
+        "--gem-sys-color--on-surface-variant",
+        "--lumi-sys-color--on-surface",
+        "--mat-button-text-label-text-color",
+        "--mat-button-text-state-layer-color",
+        "--mat-icon-button-icon-color",
+        "--mdc-icon-button-icon-color",
+      ].forEach((propertyName) => {
+        target.style.removeProperty(propertyName);
+      });
+    });
+  }
+
+  function applyShikiThemeSurface(elements, tokenResult, theme) {
+    const colors = buildThemeSurfaceColors(
+      getThemeColor(theme, tokenResult, "foreground"),
+      getActiveCodeBlockBackground(getThemeColor(theme, tokenResult, "background")),
+    );
+
+    getShikiThemeSurfaceHosts(elements).forEach((host) => {
+      host.setAttribute(SHIKI_THEME_ATTR, "true");
+      host.style.setProperty("--gemini-shiki-toolbar-fg", colors.foreground);
+      host.style.setProperty("--gemini-shiki-toolbar-bg", colors.background);
+      host.style.setProperty("--gemini-shiki-toolbar-hover-bg", colors.hoverBackground);
+    });
+
+    getShikiThemeBackgroundTargets(elements).forEach((target) => {
+      target.style.setProperty("background-color", colors.background, "important");
+      target.style.setProperty("background-image", "none", "important");
+      target.style.setProperty("border-color", colors.background, "important");
+      target.style.setProperty("outline-color", colors.background, "important");
+      target.style.setProperty("box-shadow", "none", "important");
+    });
+    getShikiThemeTransparentTargets(elements).forEach((target) => {
+      target.style.setProperty("background-color", "transparent", "important");
+      target.style.setProperty("background-image", "none", "important");
+    });
+    applyShikiToolbarColor(elements, colors);
+    elements.innerElement.style.removeProperty("color");
+    elements.preElement.style.removeProperty("color");
+  }
+
+  function clearShikiThemeSurface(elements) {
+    getShikiThemeSurfaceHosts(elements).forEach((host) => {
+      host.removeAttribute(SHIKI_THEME_ATTR);
+      [
+        "--gemini-shiki-code-fg",
+        "--gemini-shiki-code-bg",
+        "--gemini-shiki-code-muted-fg",
+        "--gemini-shiki-code-hover-bg",
+        "--gemini-shiki-toolbar-fg",
+        "--gemini-shiki-toolbar-bg",
+        "--gemini-shiki-toolbar-hover-bg",
+      ].forEach((propertyName) => {
+        host.style.removeProperty(propertyName);
+      });
+    });
+    getShikiThemeBackgroundTargets(elements).forEach((target) => {
+      target.style.removeProperty("background-color");
+      target.style.removeProperty("background-image");
+      target.style.removeProperty("border-color");
+      target.style.removeProperty("outline-color");
+      target.style.removeProperty("box-shadow");
+    });
+    getShikiThemeTransparentTargets(elements).forEach((target) => {
+      target.style.removeProperty("background-color");
+      target.style.removeProperty("background-image");
+    });
+    clearShikiToolbarColor(elements);
+  }
+
+  function tokenStyleToString(token) {
+    const styles = [];
+    if (token.color) {
+      styles.push(`color: ${token.color}`);
+    }
+    if (token.bgColor) {
+      styles.push(`background-color: ${token.bgColor}`);
+    }
+    if (token.fontStyle) {
+      if (token.fontStyle & 1) {
+        styles.push("font-style: italic");
+      }
+      if (token.fontStyle & 2) {
+        styles.push("font-weight: 700");
+      }
+      const decorations = [];
+      if (token.fontStyle & 4) {
+        decorations.push("underline");
+      }
+      if (token.fontStyle & 8) {
+        decorations.push("line-through");
+      }
+      if (decorations.length) {
+        styles.push(`text-decoration: ${decorations.join(" ")}`);
+      }
+    }
+    return styles.join("; ");
+  }
+
+  function renderShikiHtml(tokenResult) {
+    return tokenResult.tokens.map((line) => {
+      if (!Array.isArray(line) || line.length === 0) {
+        return "\n";
+      }
+
+      const html = line.map((token) => {
+        const style = tokenStyleToString(token);
+        const content = escapeHtml(token.content);
+        return style ? `<span style="${style}">${content}</span>` : `<span>${content}</span>`;
+      }).join("");
+
+      return `${html}\n`;
+    }).join("");
+  }
+
+  async function renderCodeBlockWithShiki(target) {
+    const themeDefinition = getActiveCodeThemeDefinition();
+    const payload = ensureCodeBlockSnapshot(target);
+    if (!payload) {
+      return;
+    }
+
+    if (!themeDefinition || !themeDefinition.shikiTheme) {
+      restoreOriginalCodeBlock(target);
+      return;
+    }
+
+    const { elements, snapshot } = payload;
+    const languageId = detectCodeLanguage(target) || "javascript";
+
+    const highlighter = await getShikiHighlighter();
+    const theme = await ensureShikiThemeLoaded(highlighter, themeDefinition.shikiTheme);
+    const language = await ensureShikiLanguageLoaded(highlighter, languageId);
+    if (!theme || !language) {
+      restoreOriginalCodeBlock(target);
+      return;
+    }
+
+    const renderKey = `${themeDefinition.shikiTheme}::${languageId}::${snapshot.textContent}`;
+    if (codeBlockRenderState.get(elements.codeElement) === renderKey) {
+      applyShikiThemeSurface(elements, { fg: "", bg: "" }, theme);
+      return;
+    }
+
+    const tokenResult = highlighter.codeToTokens(snapshot.textContent, {
+      lang: languageId,
+      theme: theme.name,
+    });
+
+    elements.codeElement.innerHTML = renderShikiHtml(tokenResult);
+    elements.codeElement.setAttribute(SHIKI_RENDER_ATTR, "true");
+    applyShikiThemeSurface(elements, tokenResult, theme);
+    codeBlockRenderState.set(elements.codeElement, renderKey);
+  }
+
+  async function refreshCodeThemes() {
+    const targets = getCodeBlockTargets();
+    await Promise.all(targets.map(async (target) => {
+      try {
+        await renderCodeBlockWithShiki(target);
+      } catch {
+        restoreOriginalCodeBlock(target);
+      }
+    }));
+  }
+
   function buildStyleText() {
     const bodySelector = buildScopedSelectors(ANSWER_ROOTS, BODY_TEXT_SELECTORS);
     const boldTextSelector = buildScopedSelectors(ANSWER_ROOTS, BOLD_TEXT_SELECTORS);
@@ -277,6 +918,7 @@
     const codeBlockSelector = buildScopedSelectors(ANSWER_ROOTS, CODE_BLOCK_SELECTORS);
     const codeBlockOuterSelector = buildScopedSelectors(ANSWER_ROOTS, CODE_BLOCK_OUTER_SELECTORS);
     const codeBlockInnerSelector = buildScopedSelectors(ANSWER_ROOTS, CODE_BLOCK_INNER_SELECTORS);
+    const codeBlockVisualSurfaceSelector = buildScopedSelectors(ANSWER_ROOTS, CODE_BLOCK_VISUAL_SURFACE_SELECTORS);
     const headingSelector = buildScopedSelectors(ANSWER_ROOTS, ["h1", "h2", "h3", "h4", "h5", "h6"]);
     const headingH1Selector = buildScopedSelectors(ANSWER_ROOTS, ["h1"]);
     const headingH2Selector = buildScopedSelectors(ANSWER_ROOTS, ["h2"]);
@@ -641,6 +1283,8 @@
       ${disclaimerSelector} {
         margin-top: 4px !important;
         margin-bottom: 4px !important;
+        font-size: 12px !important;
+        line-height: 1.4 !important;
       }
 
       ${topOverlayCleanupStyle}
@@ -662,9 +1306,94 @@
     }
   }
 
-  function applyTweaks() {
+  function buildCodeThemeStyleText() {
+    const codeBlockInnerSelector = buildScopedSelectors(ANSWER_ROOTS, CODE_BLOCK_INNER_SELECTORS);
+    const shikiCodeSelector = CODE_CONTENT_SELECTORS
+      .map((selector) => `${codeBlockInnerSelector} ${selector}[${SHIKI_RENDER_ATTR}="true"]`)
+      .join(",\n");
+    const shikiSurfaceSelectors = [
+      ...CODE_BLOCK_INNER_SELECTORS,
+      ...CODE_BLOCK_OUTER_SELECTORS,
+      "code-block",
+    ].map((selector) => `${selector}[${SHIKI_THEME_ATTR}="true"]`);
+    const shikiContainerSelector = buildScopedSelectors(ANSWER_ROOTS, shikiSurfaceSelectors);
+    return `
+      ${shikiCodeSelector} {
+        display: block !important;
+        white-space: pre !important;
+      }
+
+      ${shikiContainerSelector} .code-block-decoration > span:first-child,
+      ${shikiContainerSelector} .buttons gem-icon-button,
+      ${shikiContainerSelector} .buttons gem-icon,
+      ${shikiContainerSelector} .buttons button,
+      ${shikiContainerSelector} .buttons mat-icon,
+      ${shikiContainerSelector} .buttons [data-test-id='gem-copy-button'],
+      ${shikiContainerSelector} .buttons [data-test-id*='download' i],
+      ${shikiContainerSelector} .buttons [aria-label*='Copy' i],
+      ${shikiContainerSelector} .buttons [aria-label*='Download' i] {
+        color: var(--gemini-shiki-toolbar-fg) !important;
+        --gem-sys-color--on-surface: var(--gemini-shiki-toolbar-fg) !important;
+        --gem-sys-color--on-surface-variant: var(--gemini-shiki-toolbar-fg) !important;
+        --lumi-sys-color--on-surface: var(--gemini-shiki-toolbar-fg) !important;
+        --mat-button-text-label-text-color: var(--gemini-shiki-toolbar-fg) !important;
+        --mat-button-text-state-layer-color: var(--gemini-shiki-toolbar-fg) !important;
+        --mat-icon-button-icon-color: var(--gemini-shiki-toolbar-fg) !important;
+        --mdc-icon-button-icon-color: var(--gemini-shiki-toolbar-fg) !important;
+      }
+
+      ${shikiContainerSelector} .buttons button:hover,
+      ${shikiContainerSelector} .buttons button:focus-visible,
+      ${shikiContainerSelector} .buttons button:active,
+      ${shikiContainerSelector} .buttons [data-test-id='gem-copy-button'] button:hover,
+      ${shikiContainerSelector} .buttons [data-test-id='gem-copy-button'] button:focus-visible,
+      ${shikiContainerSelector} .buttons [data-test-id='gem-copy-button'] button:active,
+      ${shikiContainerSelector} .buttons [data-test-id*='download' i] button:hover,
+      ${shikiContainerSelector} .buttons [data-test-id*='download' i] button:focus-visible,
+      ${shikiContainerSelector} .buttons [data-test-id*='download' i] button:active {
+        background-color: var(--gemini-shiki-toolbar-hover-bg) !important;
+      }
+
+      ${shikiContainerSelector} .buttons .mat-mdc-button-persistent-ripple::before,
+      ${shikiContainerSelector} .buttons .mdc-icon-button__ripple::before {
+        background-color: var(--gemini-shiki-toolbar-fg) !important;
+      }
+    `;
+  }
+
+  function ensureCodeThemeStyle() {
+    let style = document.getElementById(CODE_THEME_STYLE_ID);
+    if (!(style instanceof HTMLStyleElement)) {
+      style = document.createElement("style");
+      style.id = CODE_THEME_STYLE_ID;
+      document.head.appendChild(style);
+    }
+
+    const nextText = buildCodeThemeStyleText();
+    if (style.textContent !== nextText) {
+      style.textContent = nextText;
+    }
+  }
+
+  function ensureDisclaimerStyle() {
+    const disclaimers = document.querySelectorAll("[data-test-id='disclaimer']");
+    disclaimers.forEach((node) => {
+      if (!(node instanceof HTMLElement)) {
+        return;
+      }
+      node.style.setProperty("font-size", "12px", "important");
+      node.style.setProperty("line-height", "1.4", "important");
+      node.style.setProperty("margin-top", "4px", "important");
+      node.style.setProperty("margin-bottom", "4px", "important");
+    });
+  }
+
+  async function applyTweaks() {
     updateThemeState();
     ensureStyle();
+    ensureCodeThemeStyle();
+    ensureDisclaimerStyle();
+    await refreshCodeThemes();
   }
 
   async function loadSavedConfig() {
@@ -674,7 +1403,7 @@
 
     const items = await chrome.storage.sync.get(STORAGE_KEY);
     config = mergeConfig(items[STORAGE_KEY]);
-    applyTweaks();
+    await applyTweaks();
   }
 
   function observeConfig() {
@@ -688,7 +1417,7 @@
       }
 
       config = mergeConfig(changes[STORAGE_KEY].newValue);
-      applyTweaks();
+      applyTweaks().catch(() => {});
     });
   }
 
@@ -700,7 +1429,7 @@
 
     timer = window.setTimeout(() => {
       timer = null;
-      applyTweaks();
+      applyTweaks().catch(() => {});
     }, OBSERVER_DEBOUNCE_MS);
   }
 
@@ -717,9 +1446,9 @@
     });
   }
 
-  applyTweaks();
+  applyTweaks().catch(() => {});
   loadSavedConfig().catch(() => {
-    applyTweaks();
+    applyTweaks().catch(() => {});
   });
   observeConfig();
   observeDom();

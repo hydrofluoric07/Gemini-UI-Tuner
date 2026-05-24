@@ -3,35 +3,38 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Gemini Style Tuner 设置</title>
+    <title>Gemini UI Tuner 设置</title>
     <link rel="stylesheet" href="options.css">
   </head>
   <body>
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-copy">
+          <span class="brand-name">Gemini UI Tuner <span id="versionBadge" class="version-badge"></span></span>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="reloadButton" type="button" class="text-button">重新载入</button>
+        <button id="resetButton" type="button" class="text-button">恢复默认</button>
+        <button id="saveButton" type="button" class="primary">保存设置</button>
+      </div>
+    </header>
+
     <div class="layout">
       <aside class="sidebar" aria-label="设置分类">
-        <div class="brand">
-          <span class="brand-mark"></span>
-          <span>Gemini Style Tuner</span>
+        <div class="sidebar-inner">
+
+          <nav id="settingsNav" class="nav"></nav>
         </div>
-        <nav id="settingsNav" class="nav"></nav>
       </aside>
 
       <main class="content">
-        <header class="topbar">
-          <div>
-            <p class="eyebrow">扩展设置</p>
-            <h1>样式参数</h1>
-            <p class="summary">保存后，已打开的 Gemini 页面会自动应用新样式。</p>
-          </div>
-          <div class="actions">
-            <button id="reloadButton" type="button" class="text-button">重新载入</button>
-            <button id="resetButton" type="button" class="text-button">恢复默认</button>
-            <button id="saveButton" type="button" class="primary">保存设置</button>
-          </div>
-        </header>
+        <div class="content-shell">
 
-        <section id="status" class="status" aria-live="polite"></section>
-        <form id="settingsForm" class="settings"></form>
+
+          <section id="status" class="status" aria-live="polite"></section>
+          <form id="settingsForm" class="settings"></form>
+        </div>
       </main>
     </div>
 
