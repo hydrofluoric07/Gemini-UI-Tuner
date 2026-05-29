@@ -7,6 +7,12 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
 
 jobs:
   release:
@@ -23,10 +29,18 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Update language registry
+        run: |
+          node tools/build-language-builder.mjs --skip-pages --update-extension-registry
+
       - name: Package extension
         run: |
           cd chrome-extension
           zip -r "../Gemini-UI-Tuner-v${{ steps.version.outputs.version }}.zip" .
+
+      - name: Build language builder
+        run: |
+          node tools/build-language-builder.mjs --out .pages
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
@@ -36,3 +50,14 @@ jobs:
           files: Gemini-UI-Tuner-v${{ steps.version.outputs.version }}.zip
           generate_release_notes: true
           make_latest: true
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .pages
+
+      - name: Deploy Pages
+        uses: actions/deploy-pages@v4

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Gemini Style Tuner",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "美化Gemini网页界面",
   "permissions": [
     "storage"
@@ -22,9 +22,10 @@
       ],
       "js": [
         "config.js",
+        "shiki-languages.js",
         "content.js"
       ],
-      "run_at": "document_idle"
+      "run_at": "document_start"
     }
   ],
   "web_accessible_resources": [
@@ -35,6 +36,7 @@
         "vendor/shiki/engine-javascript/*.mjs",
         "vendor/shiki/langs/*.mjs",
         "vendor/shiki/themes/*.mjs",
+        "shiki-languages.js",
         "vendor/shiki/types/index.mjs",
         "vendor/shiki/primitive/index.mjs",
         "vendor/shiki/vscode-textmate/index.js"

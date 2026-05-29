@@ -6,6 +6,8 @@
   const THEME_ATTR = "data-gemini-style-tuner-theme";
   const SHIKI_RENDER_ATTR = "data-gemini-style-tuner-shiki";
   const SHIKI_THEME_ATTR = "data-gemini-style-tuner-shiki-theme";
+  const SHIKI_PENDING_ATTR = "data-gemini-style-tuner-shiki-pending";
+  const PLAIN_TEXT_LANGUAGE_ID = "plaintext";
   const OBSERVER_DEBOUNCE_MS = 120;
   const {
     STORAGE_KEY,
@@ -31,63 +33,12 @@
       .map((preset) => [preset.shikiTheme, () => loadShikiModule(`./vendor/shiki/themes/${preset.shikiTheme}.mjs`)]),
   );
 
-  const SHIKI_LANGUAGE_LOADERS = {
-    javascript: () => loadShikiModule("./vendor/shiki/langs/javascript.mjs"),
-    typescript: () => loadShikiModule("./vendor/shiki/langs/typescript.mjs"),
-    jsx: () => loadShikiModule("./vendor/shiki/langs/jsx.mjs"),
-    tsx: () => loadShikiModule("./vendor/shiki/langs/tsx.mjs"),
-    json: () => loadShikiModule("./vendor/shiki/langs/json.mjs"),
-    html: () => loadShikiModule("./vendor/shiki/langs/html.mjs"),
-    css: () => loadShikiModule("./vendor/shiki/langs/css.mjs"),
-    shellscript: () => loadShikiModule("./vendor/shiki/langs/shellscript.mjs"),
-    python: () => loadShikiModule("./vendor/shiki/langs/python.mjs"),
-    java: () => loadShikiModule("./vendor/shiki/langs/java.mjs"),
-    go: () => loadShikiModule("./vendor/shiki/langs/go.mjs"),
-    sql: () => loadShikiModule("./vendor/shiki/langs/sql.mjs"),
-    yaml: () => loadShikiModule("./vendor/shiki/langs/yaml.mjs"),
-    markdown: () => loadShikiModule("./vendor/shiki/langs/markdown.mjs"),
-    xml: () => loadShikiModule("./vendor/shiki/langs/xml.mjs"),
-  };
-
-  const LANGUAGE_ALIAS_MAP = {
-    js: "javascript",
-    javascript: "javascript",
-    node: "javascript",
-    mjs: "javascript",
-    cjs: "javascript",
-    ts: "typescript",
-    typescript: "typescript",
-    mts: "typescript",
-    cts: "typescript",
-    jsx: "jsx",
-    tsx: "tsx",
-    json: "json",
-    json5: "json",
-    jsonc: "json",
-    html: "html",
-    xml: "xml",
-    svg: "xml",
-    css: "css",
-    scss: "css",
-    less: "css",
-    bash: "shellscript",
-    sh: "shellscript",
-    shell: "shellscript",
-    shellscript: "shellscript",
-    zsh: "shellscript",
-    console: "shellscript",
-    terminal: "shellscript",
-    py: "python",
-    python: "python",
-    java: "java",
-    go: "go",
-    golang: "go",
-    sql: "sql",
-    yaml: "yaml",
-    yml: "yaml",
-    md: "markdown",
-    markdown: "markdown",
-  };
+  const SHIKI_LANGUAGE_REGISTRY = globalThis.GeminiStyleTunerShikiLanguages || { languages: [], aliasMap: {} };
+  const SHIKI_LANGUAGE_METADATA = Object.fromEntries(
+    (Array.isArray(SHIKI_LANGUAGE_REGISTRY.languages) ? SHIKI_LANGUAGE_REGISTRY.languages : [])
+      .map((language) => [language.id, language]),
+  );
+  const LANGUAGE_ALIAS_MAP = SHIKI_LANGUAGE_REGISTRY.aliasMap || {};
 
   const ANSWER_ROOTS = [
     "chat-app .chat-history",
@@ -432,15 +383,26 @@
     }
 
     if (!shikiLanguageCache.has(languageId)) {
-      const loader = SHIKI_LANGUAGE_LOADERS[languageId];
-      if (!loader) {
+      const languageDefinition = SHIKI_LANGUAGE_METADATA[languageId];
+      const languageFile = languageDefinition?.file || `${languageId}.mjs`;
+      if (!languageDefinition || !/^[\w.+-]+\.mjs$/.test(languageFile)) {
         return null;
       }
 
-      shikiLanguageCache.set(languageId, loader().then((module) => module.default || module));
+      shikiLanguageCache.set(
+        languageId,
+        loadShikiModule(`./vendor/shiki/langs/${languageFile}`).then((module) => module.default || module),
+      );
     }
 
-    const language = await shikiLanguageCache.get(languageId);
+    let language = null;
+    try {
+      language = await shikiLanguageCache.get(languageId);
+    } catch {
+      shikiLanguageCache.delete(languageId);
+      return null;
+    }
+
     await highlighter.loadLanguage(language);
     return language;
   }
@@ -496,6 +458,63 @@
     return [...matches];
   }
 
+  function shouldApplyCustomCodeTheme() {
+    const themeDefinition = getActiveCodeThemeDefinition();
+    return Boolean(themeDefinition?.shikiTheme);
+  }
+
+  function getShikiStateHosts(elements) {
+    return [
+      elements.innerElement,
+      elements.outerElement,
+      elements.codeBlockElement,
+    ].filter((node, index, nodes) => node instanceof HTMLElement && nodes.indexOf(node) === index);
+  }
+
+  function setShikiPending(elements, isPending) {
+    getShikiStateHosts(elements).forEach((host) => {
+      if (isPending) {
+        host.setAttribute(SHIKI_PENDING_ATTR, "true");
+      } else {
+        host.removeAttribute(SHIKI_PENDING_ATTR);
+      }
+    });
+  }
+
+  function markPendingCodeBlocks(root = document) {
+    if (!shouldApplyCustomCodeTheme()) {
+      return;
+    }
+
+    const childMatches = root instanceof Element
+      ? root.querySelectorAll?.("code-block, .formatted-code-block-internal-container, code[data-test-id='code-content'], code.code-container.formatted, pre > code") || []
+      : [];
+    const nodes = root instanceof Element
+      ? [root, ...childMatches]
+      : getCodeBlockTargets();
+
+    nodes.forEach((node) => {
+      if (!(node instanceof Element)) {
+        return;
+      }
+
+      const elements = getCodeBlockElements(node);
+      if (!elements || elements.codeElement.hasAttribute(SHIKI_RENDER_ATTR)) {
+        return;
+      }
+
+      setShikiPending(elements, true);
+    });
+  }
+
+  function clearPendingCodeBlocks() {
+    document.querySelectorAll(`[${SHIKI_PENDING_ATTR}="true"]`).forEach((node) => {
+      if (node instanceof HTMLElement) {
+        node.removeAttribute(SHIKI_PENDING_ATTR);
+      }
+    });
+  }
+
   function ensureCodeBlockSnapshot(target) {
     const elements = getCodeBlockElements(target);
     if (!elements) {
@@ -528,6 +547,7 @@
     }
 
     const { elements, snapshot } = payload;
+    setShikiPending(elements, false);
     elements.codeElement.innerHTML = snapshot.innerHTML;
     elements.codeElement.removeAttribute(SHIKI_RENDER_ATTR);
     clearShikiThemeSurface(elements);
@@ -558,6 +578,12 @@
     const { elements } = payload;
     const candidates = [];
     const attributeKeys = ["data-language", "language", "lang", "data-lang"];
+    const languageLabel = elements.innerElement
+      .querySelector?.(".code-block-decoration > span:first-child")
+      ?.textContent;
+    if (languageLabel) {
+      candidates.push(languageLabel);
+    }
 
     [elements.codeElement, elements.preElement, elements.innerElement, elements.outerElement, elements.codeBlockElement]
       .filter(Boolean)
@@ -577,12 +603,6 @@
             }
           });
       });
-
-    const nearbyLabel = elements.innerElement.parentElement?.textContent || "";
-    const labelMatch = nearbyLabel.match(/\b(javascript|typescript|python|java|go|sql|json|html|css|xml|yaml|yml|bash|shell|sh|jsx|tsx|markdown|md)\b/i);
-    if (labelMatch) {
-      candidates.push(labelMatch[1]);
-    }
 
     for (const candidate of candidates) {
       const languageId = normalizeLanguageId(candidate);
@@ -690,11 +710,7 @@
   }
 
   function getShikiThemeSurfaceHosts(elements) {
-    return [
-      elements.innerElement,
-      elements.outerElement,
-      elements.codeBlockElement,
-    ].filter((node, index, nodes) => node instanceof HTMLElement && nodes.indexOf(node) === index);
+    return getShikiStateHosts(elements);
   }
 
   function getShikiThemeBackgroundTargets(elements) {
@@ -765,6 +781,7 @@
       host.style.setProperty("--gemini-shiki-toolbar-bg", colors.background);
       host.style.setProperty("--gemini-shiki-toolbar-hover-bg", colors.hoverBackground);
     });
+    setShikiPending(elements, false);
 
     getShikiThemeBackgroundTargets(elements).forEach((target) => {
       target.style.setProperty("background-color", colors.background, "important");
@@ -856,6 +873,20 @@
     }).join("");
   }
 
+  function createPlainTextTokenResult(text, theme) {
+    const foreground = getThemeColor(theme, {}, "foreground") || "#24292e";
+    const background = getThemeColor(theme, {}, "background") || "";
+    const lines = String(text || "").split("\n");
+
+    return {
+      fg: foreground,
+      bg: background,
+      tokens: lines.map((line) => {
+        return line ? [{ content: line, color: foreground }] : [];
+      }),
+    };
+  }
+
   async function renderCodeBlockWithShiki(target) {
     const themeDefinition = getActiveCodeThemeDefinition();
     const payload = ensureCodeBlockSnapshot(target);
@@ -869,26 +900,29 @@
     }
 
     const { elements, snapshot } = payload;
-    const languageId = detectCodeLanguage(target) || "javascript";
+    const detectedLanguageId = detectCodeLanguage(target);
 
     const highlighter = await getShikiHighlighter();
     const theme = await ensureShikiThemeLoaded(highlighter, themeDefinition.shikiTheme);
-    const language = await ensureShikiLanguageLoaded(highlighter, languageId);
-    if (!theme || !language) {
+    if (!theme) {
       restoreOriginalCodeBlock(target);
       return;
     }
 
+    const language = await ensureShikiLanguageLoaded(highlighter, detectedLanguageId);
+    const languageId = language ? detectedLanguageId : PLAIN_TEXT_LANGUAGE_ID;
     const renderKey = `${themeDefinition.shikiTheme}::${languageId}::${snapshot.textContent}`;
     if (codeBlockRenderState.get(elements.codeElement) === renderKey) {
       applyShikiThemeSurface(elements, { fg: "", bg: "" }, theme);
       return;
     }
 
-    const tokenResult = highlighter.codeToTokens(snapshot.textContent, {
-      lang: languageId,
-      theme: theme.name,
-    });
+    const tokenResult = language
+      ? highlighter.codeToTokens(snapshot.textContent, {
+        lang: languageId,
+        theme: theme.name,
+      })
+      : createPlainTextTokenResult(snapshot.textContent, theme);
 
     elements.codeElement.innerHTML = renderShikiHtml(tokenResult);
     elements.codeElement.setAttribute(SHIKI_RENDER_ATTR, "true");
@@ -897,6 +931,10 @@
   }
 
   async function refreshCodeThemes() {
+    if (!shouldApplyCustomCodeTheme()) {
+      clearPendingCodeBlocks();
+    }
+    markPendingCodeBlocks();
     const targets = getCodeBlockTargets();
     await Promise.all(targets.map(async (target) => {
       try {
@@ -1297,7 +1335,7 @@
     if (!(style instanceof HTMLStyleElement)) {
       style = document.createElement("style");
       style.id = STYLE_ID;
-      document.head.appendChild(style);
+      (document.head || document.documentElement).appendChild(style);
     }
 
     const nextText = buildStyleText();
@@ -1317,7 +1355,23 @@
       "code-block",
     ].map((selector) => `${selector}[${SHIKI_THEME_ATTR}="true"]`);
     const shikiContainerSelector = buildScopedSelectors(ANSWER_ROOTS, shikiSurfaceSelectors);
+    const shikiPendingSelectors = [
+      ...CODE_BLOCK_INNER_SELECTORS,
+      ...CODE_BLOCK_OUTER_SELECTORS,
+      "code-block",
+    ].map((selector) => `${selector}[${SHIKI_PENDING_ATTR}="true"]`);
+    const shikiPendingSelector = buildScopedSelectors(ANSWER_ROOTS, shikiPendingSelectors);
     return `
+      ${shikiPendingSelector} pre,
+      ${shikiPendingSelector} code,
+      ${shikiPendingSelector} code span {
+        color: transparent !important;
+      }
+
+      ${shikiPendingSelector} code {
+        visibility: hidden !important;
+      }
+
       ${shikiCodeSelector} {
         display: block !important;
         white-space: pre !important;
@@ -1366,7 +1420,7 @@
     if (!(style instanceof HTMLStyleElement)) {
       style = document.createElement("style");
       style.id = CODE_THEME_STYLE_ID;
-      document.head.appendChild(style);
+      (document.head || document.documentElement).appendChild(style);
     }
 
     const nextText = buildCodeThemeStyleText();
@@ -1434,7 +1488,14 @@
   }
 
   function observeDom() {
-    const observer = new MutationObserver(() => {
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (node instanceof Element) {
+            markPendingCodeBlocks(node);
+          }
+        });
+      });
       scheduleApply();
     });
 
