@@ -40,6 +40,16 @@
 
 如果页面没有立即变化，刷新 Gemini 页面或重新加载扩展即可。
 
+## 自定义代码语言包
+
+标准压缩包只内置常用 Shiki 语言文件。若需要 Rust、PHP、Vue、C# 等更多语言，可打开 [自定义语言包下载器](https://hydrofluoric07.github.io/Gemini-UI-Tuner/language-builder/index.html)：
+
+1. 勾选需要支持的代码语言。
+2. 点击“生成自定义压缩包”。
+3. 解压下载的 `Gemini-UI-Tuner-*-custom-langs.zip`。
+4. 在 `chrome://extensions/` 中加载解压后的文件夹。
+
+
 
 ## License
 

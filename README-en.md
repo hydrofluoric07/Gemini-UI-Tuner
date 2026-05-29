@@ -40,6 +40,17 @@ Click the extension icon in the browser toolbar to open the settings page. Chang
 
 If the page does not update immediately, refresh Gemini or reload the extension.
 
+## Custom Code Languages
+
+The standard archive only bundles common Shiki language files. If you need more languages such as Rust, PHP, Vue, or C#, open the [custom language package builder](https://hydrofluoric07.github.io/Gemini-UI-Tuner/language-builder/index.html):
+
+1. Select the code languages you need.
+2. Click "Generate custom archive".
+3. Unzip `Gemini-UI-Tuner-*-custom-langs.zip`.
+4. Load the extracted folder from `chrome://extensions/`.
+
+The builder only creates a new extension archive in your browser. After installation, the extension still loads local bundled JS files only and does not download remote code at runtime.
+
 ## License
 
 MIT License

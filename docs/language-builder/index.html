@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gemini UI Tuner Language Builder</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Gemini UI Tuner</p>
+        <h1>自定义 Shiki 语言包</h1>
+        <p class="intro">
+          选择需要的代码语言
+        </p>
+      </div>
+      <div class="panel summary-panel" aria-live="polite">
+        <span>Extension</span>
+        <strong id="versionText">读取中</strong>
+        <span>Selected</span>
+        <strong id="selectedText">0 languages</strong>
+        <span>Extra Size</span>
+        <strong id="sizeText">0 KiB</strong>
+      </div>
+    </section>
+
+    <section class="panel controls">
+      <label class="search">
+        <span>搜索语言</span>
+        <input id="searchInput" type="search" placeholder="javascript, python, rust...">
+      </label>
+      <div class="actions">
+        <button id="selectBundledButton" type="button">选择默认语言</button>
+        <button id="selectVisibleButton" type="button">选择当前结果</button>
+        <button id="clearButton" type="button">清空选择</button>
+      </div>
+    </section>
+
+    <section class="layout">
+      <section class="panel language-panel">
+        <div class="panel-head">
+          <h2>语言列表</h2>
+          <span id="resultCount">0</span>
+        </div>
+        <div id="languageList" class="language-list" aria-live="polite"></div>
+      </section>
+
+      <aside class="panel download-panel">
+        <h2>下载</h2>
+        <button id="downloadButton" class="primary" type="button">下载自定义代码语言包</button>
+        <a class="release-link" href="https://github.com/hydrofluoric07/Gemini-UI-Tuner/releases/latest">
+          下载标准 Release
+        </a>
+        <pre id="statusText" class="status">准备加载语言清单...</pre>
+      </aside>
+    </section>
+  </main>
+
+  <script src="builder.js"></script>
+</body>
+</html>
